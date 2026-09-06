@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.3.0 (2026-09-06)
+
+Exit-code mapping hook — driven by dogfooding in the Torchwood CLI,
+whose RPC errors carry their own exit-code classes (4xx / 5xx /
+rate-limit) that must survive the framework's rendering and help paths.
+
+### Added
+
+- **`App.ExitCode`**: injectable `func(error) int` that fully owns the
+  exit-code mapping for verb errors; the default keeps the `0/1/2`
+  convention (usage-class errors exit `2`, everything else `1`).
+  `Run` still renders the error via `RenderError` and appends the help
+  screen for unknown verbs regardless of the hook's verdict, and the
+  `help <unknown>` path consults the hook too.
+
+### Fixed
+
+- The help screen's verb column now pads to the longest verb name
+  (floored at the historical 10 columns, so tables whose longest name
+  fits render byte-identical to v0.2.x, and widths count runes);
+  previously a name longer than the fixed width swallowed the gap
+  entirely and ran into its synopsis (found dogfooding the Torchwood
+  CLI, whose longest verb is `oauth-providers`).
+
 ## v0.2.1 (2026-09-05)
 
 Fixes the `--json=` contract violation shipped in v0.2.0 and adds the

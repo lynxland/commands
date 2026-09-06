@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Environment is the execution environment of one command (injectable in
@@ -125,6 +126,18 @@ type App struct {
 	// err.Error().
 	RenderError func(error) string
 
+	// ExitCode maps a verb error to the process exit code, for consumers
+	// whose errors carry their own severity (e.g. an RPC status class).
+	// When nil, usage-class errors (UnknownVerbError, UsageError) exit
+	// ExitUsage and everything else exits ExitError. The return value is
+	// passed through verbatim — any int (including 0) is the process exit
+	// code, no clamping. Rendering is not affected: Run still renders the
+	// error and, for an unknown verb, appends the help screen regardless
+	// of what the hook returns. Note that an inner miss reported through
+	// SubDispatch has already been rewritten to "unknown subcommand %q",
+	// so it reaches the hook without the UnknownVerbError type.
+	ExitCode func(error) int
+
 	// HelpHeader / VerbTitle / HelpFooter compose the help screen
 	// (printHelp).
 	HelpHeader string
@@ -183,8 +196,10 @@ func (a *App) Names() []string {
 //     stdout and returns ExitOK; "help <verb>" prints that verb's usage
 //     and flag defaults to stdout and returns ExitOK
 //   - an unknown verb (or "help <unknown>") renders the error, appends
-//     the help screen to stderr, and returns ExitUsage
+//     the help screen to stderr, and returns ExitUsage (or the ExitCode
+//     hook's verdict when set)
 //   - any other verb error is rendered to stderr and returns ExitError
+//     (or the ExitCode hook's verdict when set)
 //
 // If RootFlag is set, its forms are stripped from the full argument list
 // first, so the root flag may also precede the verb name. A verb-level
@@ -204,7 +219,7 @@ func (a *App) Run(ctx context.Context, env *Environment, args []string) int {
 			if !ok {
 				fmt.Fprintln(e.Stderr, a.render(&UnknownVerbError{Name: args[1]}))
 				a.printHelp(e.Stderr)
-				return ExitUsage
+				return a.exitCode(&UnknownVerbError{Name: args[1]})
 			}
 			a.printVerbHelp(e.Stdout, cmd)
 			return ExitOK
@@ -220,16 +235,16 @@ func (a *App) Run(ctx context.Context, env *Environment, args []string) int {
 	var unknown *UnknownVerbError
 	if errors.As(err, &unknown) {
 		a.printHelp(e.Stderr)
-		return ExitUsage
+		return a.exitCode(err)
 	}
 	var usage *UsageError
 	if errors.As(err, &usage) {
 		if usage.Usage != "" {
 			fmt.Fprintln(e.Stderr, "usage:", usage.Usage)
 		}
-		return ExitUsage
+		return a.exitCode(err)
 	}
-	return ExitError
+	return a.exitCode(err)
 }
 
 // Dispatch dispatches one verb and returns its error (no rendering, no
@@ -312,6 +327,22 @@ func (a *App) render(err error) string {
 		return a.RenderError(err)
 	}
 	return err.Error()
+}
+
+// exitCode maps a verb error to the process exit code: the ExitCode hook
+// fully owns the mapping when set; the default keeps usage-class errors
+// (UnknownVerbError, UsageError) on ExitUsage and everything else on
+// ExitError.
+func (a *App) exitCode(err error) int {
+	if a.ExitCode != nil {
+		return a.ExitCode(err)
+	}
+	var unknown *UnknownVerbError
+	var usage *UsageError
+	if errors.As(err, &unknown) || errors.As(err, &usage) {
+		return ExitUsage
+	}
+	return ExitError
 }
 
 // validateRoot fails fast on root-flag configuration bugs: an empty or
@@ -447,8 +478,23 @@ func (a *App) printHelp(w io.Writer) {
 		title = "commands:"
 	}
 	fmt.Fprintln(w, title)
-	for _, n := range a.Names() {
-		fmt.Fprintf(w, "  %-10s %s\n", n, a.commands[n].Synopsis())
+	// Pad to the longest verb name so descriptions align regardless of
+	// name length (a fixed width drops the gap entirely once a name
+	// exceeds it). The floor keeps v0.2.x output byte-identical for
+	// tables whose longest name fits the historical 10 columns; count
+	// runes so non-ASCII names measure the same way %-*s pads them.
+	names := a.Names()
+	width := 0
+	for _, n := range names {
+		if w := utf8.RuneCountInString(n); w > width {
+			width = w
+		}
+	}
+	if width < 10 {
+		width = 10
+	}
+	for _, n := range names {
+		fmt.Fprintf(w, "  %-*s %s\n", width, n, a.commands[n].Synopsis())
 	}
 	if a.HelpFooter != "" {
 		fmt.Fprintln(w)

@@ -18,7 +18,7 @@ on the standard library.
 - **Help everywhere** — `help` prints the command list, `help <verb>` prints that verb's `Usage()` line plus its flag defaults, and `-h`/`-help` works at the top level and per verb — all to stdout with exit code `0` (`ErrHelp` for hook-level consumers)
 - **Nested subcommands** — an inner `App` reuses the same dispatch machinery through `Dispatch` / `SubDispatch`
 - **Assembly-time product voice** — `FlagError`, `RenderError`, and help composition (`HelpHeader` / `VerbTitle` / `HelpFooter`) are injectable; the framework ships no opinionated copy
-- **Exit-code convention** — `0` success, `1` command error, `2` usage error (unknown verb, flag parse failure, verb-declared `UsageError`)
+- **Exit-code convention** — `0` success, `1` command error, `2` usage error (unknown verb, flag parse failure, verb-declared `UsageError`) — with an injectable `ExitCode` hook for consumers whose errors carry their own severity
 
 ## Installation
 
@@ -181,6 +181,7 @@ Assembly-time hooks and knobs:
 | `RootBoolFlags` | `nil` (off) | Global valueless bool flag names; `"json"` matches `-json` / `--json` / `--json=<bool>` anywhere, landing in `Environment.RootBools`. Leave empty on nested apps — the outer layer already stripped them |
 | `FlagError` | `"%s: bad arguments: %v"` | Maps a flag parse failure to a business error (the single stderr line — the flag package's own output is silenced) |
 | `RenderError` | `err.Error()` | Renders a verb error as a single stderr line |
+| `ExitCode` | usage → `2`, else `1` | Maps a verb error to the process exit code (e.g. an RPC status class); rendering and the unknown-verb help appendix are unaffected |
 | `HelpHeader` / `VerbTitle` / `HelpFooter` | `""` / `"commands:"` / `""` | Compose the help screen |
 
 ### Root flag forms
@@ -308,6 +309,15 @@ message can be rewritten through `RenderError`. `UsageError{Usage, Err}`
 carries the same treatment for verb-level argument problems — see
 [`UsageError`](#usageerror).
 
+An `ExitCode` hook (`func(error) int`) can take over the mapping
+entirely — e.g. a CLI whose RPC errors exit with their own status
+classes. `Run` keeps rendering the error and appending the unknown-verb
+help screen regardless of the hook's verdict; `help <unknown>` consults
+the hook too. The return value is passed through verbatim (any int, no
+clamping), and an inner miss reported through `SubDispatch` reaches the
+hook already rewritten to `unknown subcommand %q`, without the
+`UnknownVerbError` type.
+
 ## Testing
 
 ```bash
@@ -350,7 +360,7 @@ composition, `Names()` ordering, and `Register` fail-fast panics. The
 - **各级 help** —— `help` 打命令列表，`help <动词>` 打该动词的 `Usage()` 行与旗标缺省值，`-h`/`-help` 在顶层与动词级都可用——全部输出到 stdout、退出码 `0`（钩子层消费者会收到 `ErrHelp`）
 - **嵌套子动词** —— 内层 `App` 通过 `Dispatch` / `SubDispatch` 复用同一套分发机器
 - **装配期注入产品口径** —— `FlagError`、`RenderError` 与帮助面组装（`HelpHeader` / `VerbTitle` / `HelpFooter`）均可注入，框架不带自己的文案
-- **退出码约定** —— `0` 成功；`1` 命令错误；`2` 用法错误（未知动词 / 旗标解析失败 / 动词声明的 `UsageError`）
+- **退出码约定** —— `0` 成功；`1` 命令错误；`2` 用法错误（未知动词 / 旗标解析失败 / 动词声明的 `UsageError`）——退出码映射可经 `ExitCode` 钩子整体接管
 
 ## 安装
 
@@ -506,6 +516,7 @@ error 由 `App.Run` 经 `RenderError` 渲染到 stderr 并映射退出码 `1`。
 | `RootBoolFlags` | `nil`（关闭） | 全局无值 bool 旗标名；`"json"` 匹配任意位置的 `-json` / `--json` / `--json=<bool>`，值落 `Environment.RootBools`。嵌套内层应置空——外层已剥离 |
 | `FlagError` | `"%s: bad arguments: %v"` | 把旗标解析失败映射为业务错误（stderr 上的唯一一行——flag 包自身输出已静默） |
 | `RenderError` | `err.Error()` | 把动词错误渲染为 stderr 单行文案 |
+| `ExitCode` | 用法错→`2`，其余→`1` | 把动词错误映射为进程退出码（如 RPC 状态类别）；渲染与未知动词附帮助面不受影响 |
 | `HelpHeader` / `VerbTitle` / `HelpFooter` | `""` / `"commands:"` / `""` | 组装帮助面 |
 
 ### 根旗标形态
@@ -625,6 +636,13 @@ func (c *remoteCmd) Run(ctx context.Context, env *commands.Environment, args []s
 选用法退出码并附帮助面，文案可经 `RenderError` 重写。
 `UsageError{Usage, Err}` 让动词级参数问题得到同样待遇——见
 [`UsageError`](#usageerror)。
+
+`ExitCode` 钩子（`func(error) int`）可以整体接管退出码映射——例如
+RPC 错误按自身状态类别退出的 CLI。无论钩子给出什么码，`Run` 照常
+渲染错误、照常为未知动词附帮助面；`help <未知动词>` 同样走钩子。
+返回值逐字透传（任意 int，不夹取）；经嵌套 `SubDispatch` 改写后的
+错误到达钩子时已是 `unknown subcommand %q` 文案，不再携带
+`UnknownVerbError` 类型。
 
 ## 测试
 

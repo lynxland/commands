@@ -678,6 +678,73 @@ func TestUsageErrorCrossesNesting(t *testing.T) {
 	}
 }
 
+// errCmd fails with a plain error — the conventional ExitError path, not
+// a usage error.
+type errCmd struct{ err error }
+
+func (errCmd) Name() string     { return "fail" }
+func (errCmd) Synopsis() string { return "always fails" }
+func (errCmd) Usage() string    { return "fail" }
+
+func (c errCmd) Run(_ context.Context, _ *Environment, _ []string) error { return c.err }
+
+func TestExitCodeHookOwnsMapping(t *testing.T) {
+	// The hook fully owns the mapping: here a plain verb error is mapped
+	// to 42 (passed through verbatim — any int, no clamping), while
+	// usage-class errors take whatever verdict the hook gives them.
+	app := newTestApp()
+	app.Register(errCmd{err: errors.New("boom")}, usageCmd{hint: true})
+	var gotUnknown *UnknownVerbError
+	app.ExitCode = func(err error) int {
+		if strings.Contains(err.Error(), "boom") {
+			return 42
+		}
+		var unknown *UnknownVerbError
+		if errors.As(err, &unknown) {
+			gotUnknown = unknown
+		}
+		return 1
+	}
+	var out, errOut bytes.Buffer
+	if code := app.Run(context.Background(), &Environment{Stdout: &out, Stderr: &errOut}, []string{"fail"}); code != 42 {
+		t.Fatalf("verb-error exit code = %d, want 42 (verbatim)", code)
+	}
+	if errOut.String() != "boom\n" {
+		t.Fatalf("stderr = %q, want %q", errOut.String(), "boom\n")
+	}
+	// A usage-class error consults the hook too (here mapped away from 2),
+	// keeping its usage hint.
+	errOut.Reset()
+	if code := app.Run(context.Background(), &Environment{Stdout: &out, Stderr: &errOut}, []string{"fussy"}); code != 1 {
+		t.Fatalf("usage-error exit code = %d, want 1", code)
+	}
+	if !strings.Contains(errOut.String(), "usage: fussy --config FILE") {
+		t.Fatalf("stderr = %q, want the usage hint", errOut.String())
+	}
+	// An unknown verb also consults the hook, and Run still appends the
+	// help screen to stderr regardless of the verdict. The error reaches
+	// the hook typed as *UnknownVerbError.
+	errOut.Reset()
+	if code := app.Run(context.Background(), &Environment{Stdout: &out, Stderr: &errOut}, []string{"nope"}); code != 1 {
+		t.Fatalf("unknown-verb exit code = %d, want 1", code)
+	}
+	if !strings.Contains(errOut.String(), "commands:") {
+		t.Fatalf("stderr = %q, want the appended help screen", errOut.String())
+	}
+	if gotUnknown == nil || gotUnknown.Name != "nope" {
+		t.Fatalf("hook should receive *UnknownVerbError{Name:%q}, got %+v", "nope", gotUnknown)
+	}
+	// help <unknown> consults the hook as well.
+	errOut.Reset()
+	gotUnknown = nil
+	if code := app.Run(context.Background(), &Environment{Stdout: &out, Stderr: &errOut}, []string{"help", "nope"}); code != 1 {
+		t.Fatalf("help <unknown> exit code = %d, want 1", code)
+	}
+	if gotUnknown == nil || gotUnknown.Name != "nope" {
+		t.Fatalf("help <unknown> should reach the hook as *UnknownVerbError, got %+v", gotUnknown)
+	}
+}
+
 func TestHelpComposition(t *testing.T) {
 	app := New()
 	app.HelpHeader = "header"
@@ -692,6 +759,19 @@ func TestHelpComposition(t *testing.T) {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help screen missing %q: %q", want, help)
 		}
+	}
+}
+
+func TestHelpAlignsToLongestVerbName(t *testing.T) {
+	// The verb column pads to the longest name, so a name longer than the
+	// historical fixed width still leaves a gap before its synopsis.
+	app := New()
+	app.Register(stubCmd("a-verb-name-longer-than-ten"), stubCmd("x"))
+	var out bytes.Buffer
+	app.Run(context.Background(), &Environment{Stdout: &out, Stderr: &out}, nil)
+	want := "  a-verb-name-longer-than-ten stub a-verb-name-longer-than-ten"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("help screen missing aligned long-verb line %q: %q", want, out.String())
 	}
 }
 
