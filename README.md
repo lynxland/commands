@@ -23,7 +23,7 @@ on the standard library.
 ## Installation
 
 ```bash
-go get github.com/lynx-go/commands
+go get github.com/lynxland/commands
 ```
 
 Requires a tagged release (`v0.1.0` or later) and Go 1.21+.
@@ -40,7 +40,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/lynx-go/commands"
+	"github.com/lynxland/commands"
 )
 
 type echoCmd struct {
@@ -365,7 +365,7 @@ composition, `Names()` ordering, and `Register` fail-fast panics. The
 ## 安装
 
 ```bash
-go get github.com/lynx-go/commands
+go get github.com/lynxland/commands
 ```
 
 需要有已打的版本标签（`v0.1.0` 及以上）与 Go 1.21+。
@@ -382,7 +382,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/lynx-go/commands"
+	"github.com/lynxland/commands"
 )
 
 type echoCmd struct {

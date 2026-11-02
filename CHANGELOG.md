@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.4.0 (2026-11-02)
+
+Module path move — the GitHub organization `lynx-go` was renamed to
+`lynxland`, so the module now lives at `github.com/lynxland/commands`.
+
+### Changed
+
+- **Breaking — module path**: `github.com/lynx-go/commands` →
+  `github.com/lynxland/commands`. No API or behavior changes; migrate by
+  replacing the import path (go.mod `require` and every `import`).
+- v0.3.0 and earlier stay resolvable only under the old path (their
+  go.mod declares it; fetching them under the new path fails with
+  `module declares its path as`). v0.4.0 is the first version under the
+  new path.
+
 ## v0.3.0 (2026-09-06)
 
 Exit-code mapping hook — driven by dogfooding in the Torchwood CLI,

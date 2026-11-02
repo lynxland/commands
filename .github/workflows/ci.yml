@@ -33,7 +33,7 @@ jobs:
           go-version: stable
       - name: Fail on any module dependency
         run: |
-          deps="$(go list -m all | grep -v '^github.com/lynx-go/commands$' || true)"
+          deps="$(go list -m all | grep -v '^github.com/lynxland/commands$' || true)"
           if [ -n "$deps" ]; then
             echo "::error::unexpected module dependencies: $deps"
             exit 1

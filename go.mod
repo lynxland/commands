@@ -1,3 +1,3 @@
-module github.com/lynx-go/commands
+module github.com/lynxland/commands
 
 go 1.21
